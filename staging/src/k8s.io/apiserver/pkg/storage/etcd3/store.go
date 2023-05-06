@@ -160,6 +160,7 @@ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object,
 	if err := s.versioner.PrepareObjectForStorage(obj); err != nil {
 		return fmt.Errorf("PrepareObjectForStorage failed: %v", err)
 	}
+	klog.V(2).Infof("Before runtime.Encode in Create: %v", obj)
 	data, err := runtime.Encode(s.codec, obj)
 	if err != nil {
 		return err
@@ -402,7 +403,7 @@ func (s *store) GuaranteedUpdate(
 			// Retry
 			continue
 		}
-
+		klog.V(2).Infof("Before runtime.Encode in GuaranteedUpdate: %v", ret)
 		data, err := runtime.Encode(s.codec, ret)
 		if err != nil {
 			return err
@@ -947,6 +948,7 @@ func (s *store) getStateFromObject(obj runtime.Object) (*objState, error) {
 	if err := s.versioner.PrepareObjectForStorage(obj); err != nil {
 		return nil, fmt.Errorf("PrepareObjectForStorage failed: %v", err)
 	}
+	klog.V(2).Infof("Before runtime.Encode in getStateFromObject: %v", obj)
 	state.data, err = runtime.Encode(s.codec, obj)
 	if err != nil {
 		return nil, err
