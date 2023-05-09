@@ -147,6 +147,40 @@ func (s *store) Get(ctx context.Context, key string, opts storage.GetOptions, ou
 	return decode(s.codec, s.versioner, data, out, kv.ModRevision)
 }
 
+func TripleModeEncode(e runtime.Encoder, obj runtime.Object) ([]byte, error) {
+	// Triple-mode redundancy:
+	// 1. run runtime.Encode(s.codec, obj) 3 times, save the results;
+	// 2. find the majority of the results as the final result;
+	// 3. if the majority is not found, return an error.
+	// This is to avoid the situation where the runtime.Encode function is not deterministic because of the SEU.
+	var data []byte
+	var err error
+	var data1, data2, data3 []byte
+	for i := 0; i < 3; i++ {
+		data, err = runtime.Encode(e, obj)
+		if err != nil {
+			return nil, err
+		}
+		if i == 0 {
+			data1 = data
+		} else if i == 1 {
+			data2 = data
+		} else {
+			data3 = data
+		}
+	}
+	if bytes.Equal(data1, data2) || bytes.Equal(data1, data3) {
+		klog.V(2).Infof("the first one is the majority part")
+		data = data1
+	} else if bytes.Equal(data2, data3) {
+		klog.V(2).Infof("the second one is the majority part")
+		data = data2
+	} else {
+		return nil, errors.New("runtime.Encode is not deterministic")
+	}
+	return data, nil
+}
+
 // Create implements storage.Interface.Create.
 func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object, ttl uint64) error {
 	preparedKey, err := s.prepareKey(key)
@@ -161,7 +195,7 @@ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object,
 		return fmt.Errorf("PrepareObjectForStorage failed: %v", err)
 	}
 	klog.V(2).Infof("Before runtime.Encode in Create: %v", obj)
-	data, err := runtime.Encode(s.codec, obj)
+	data, err := TripleModeEncode(s.codec, obj)
 	if err != nil {
 		return err
 	}
@@ -404,7 +438,7 @@ func (s *store) GuaranteedUpdate(
 			continue
 		}
 		klog.V(2).Infof("Before runtime.Encode in GuaranteedUpdate: %v", ret)
-		data, err := runtime.Encode(s.codec, ret)
+		data, err := TripleModeEncode(s.codec, ret)
 		if err != nil {
 			return err
 		}
@@ -949,7 +983,7 @@ func (s *store) getStateFromObject(obj runtime.Object) (*objState, error) {
 		return nil, fmt.Errorf("PrepareObjectForStorage failed: %v", err)
 	}
 	klog.V(2).Infof("Before runtime.Encode in getStateFromObject: %v", obj)
-	state.data, err = runtime.Encode(s.codec, obj)
+	state.data, err = TripleModeEncode(s.codec, obj)
 	if err != nil {
 		return nil, err
 	}
